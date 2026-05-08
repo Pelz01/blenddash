@@ -1,8 +1,6 @@
-'use client';
-
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
 import {
   Table,
   TableBody,
@@ -10,308 +8,403 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '@/components/ui/table';
-import { cn } from '@/lib/utils';
-import { DollarSign, Users, Lock, Receipt } from 'lucide-react';
+} from "@/components/ui/table";
+import Link from "next/link";
 
-// ── Mock Data ───────────────────────────────────────────────────────────────────
-
-const fluentOverview = {
-  totalRevenue: 2_847_500,
-  revenueDelta: 12.4,
-  activeUsers: 84_700,
-  usersDelta: 8.2,
-  tvl: 156_200_000,
-  tvlDelta: 15.3,
-  fees: 142_300,
-  feesDelta: 6.7,
-};
-
-const monthlyRevenue = [
-  { label: 'Jun', value: 210_000 },
-  { label: 'Jul', value: 225_000 },
-  { label: 'Aug', value: 218_000 },
-  { label: 'Sep', value: 242_000 },
-  { label: 'Oct', value: 256_000 },
-  { label: 'Nov', value: 248_000 },
-  { label: 'Dec', value: 262_000 },
-  { label: 'Jan', value: 275_000 },
-  { label: 'Feb', value: 284_750 },
-  { label: 'Mar', value: 290_000 },
-  { label: 'Apr', value: 310_000 },
-  { label: 'May', value: 325_000 },
-];
-
-type ProjectRow = {
+// ── Types ──────────────────────────────────────────────────
+interface ChainData {
   name: string;
-  revenue30d: number;
-  growth: number;
-  marketShare: number;
-};
-
-const compareProjects: ProjectRow[] = [
-  { name: 'Fluent', revenue30d: 2_847_500, growth: 12.4, marketShare: 28.5 },
-  { name: 'Eclipse', revenue30d: 1_923_000, growth: -3.2, marketShare: 19.2 },
-  { name: 'Monad', revenue30d: 2_189_000, growth: 5.1, marketShare: 21.9 },
-  { name: 'Abstract', revenue30d: 1_560_800, growth: 8.7, marketShare: 15.6 },
-  { name: 'MegaETH', revenue30d: 1_491_200, growth: -1.8, marketShare: 14.9 },
-];
-
-// ── Helpers ──────────────────────────────────────────────────────────────────────
-
-function fmtCurrency(value: number): string {
-  if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`;
-  if (value >= 1_000) return `$${(value / 1_000).toFixed(1)}K`;
-  return `$${value.toLocaleString()}`;
+  tvl: number;
+  chainId: number | null;
+  gecko_id: string | null;
+  symbol: string;
 }
 
-function fmtCompact(value: number): string {
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
-  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
-  return value.toLocaleString();
+interface ChainEntry {
+  name: string;
+  tvl: number;
+  symbol: string;
+  listed: boolean;
+  gecko_id?: string | null;
 }
 
-function Delta({ value, className }: { value: number; className?: string }) {
-  const isPositive = value >= 0;
-  return (
-    <span
-      className={cn(
-        'font-mono tabular-nums text-xs',
-        isPositive ? 'text-[#4ade80]' : 'text-destructive',
-        className,
-      )}
-    >
-      {isPositive ? '+' : ''}
-      {value.toFixed(1)}%
-    </span>
-  );
+// ── Data fetch (build time) ────────────────────────────────
+async function fetchChains(): Promise<{ entries: ChainEntry[]; fetchedAt: string }> {
+  const res = await fetch("https://api.llama.fi/v2/chains", {
+    next: { revalidate: 900 }, // 15 min cache
+  });
+
+  if (!res.ok) throw new Error(`DefiLlama API error: ${res.status}`);
+
+  const chains: ChainData[] = await res.json();
+
+  const targets = [
+    { name: "Fluent", lookup: "fluent" },
+    { name: "Monad", lookup: "monad" },
+    { name: "Eclipse", lookup: "eclipse" },
+    { name: "MegaETH", lookup: "megaeth" },
+    { name: "Abstract", lookup: "abstract" },
+  ];
+
+  const entries: ChainEntry[] = targets.map((t) => {
+    const found = chains.find(
+      (c) => c.name.toLowerCase() === t.lookup.toLowerCase()
+    );
+    return {
+      name: t.name,
+      tvl: found?.tvl ?? 0,
+      symbol: found?.symbol ?? t.name.substring(0, 4).toUpperCase(),
+      listed: !!found,
+      gecko_id: found?.gecko_id ?? null,
+    };
+  });
+
+  return { entries, fetchedAt: new Date().toISOString() };
 }
 
-// ── Sub-Components ───────────────────────────────────────────────────────────────
+// ── Formatting helpers ─────────────────────────────────────
+function fmtCurrency(n: number): string {
+  if (n === 0 && !Number.isFinite(n)) return "—";
+  if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
+  if (n >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
+  if (n >= 1e3) return `$${(n / 1e3).toFixed(1)}K`;
+  return `$${n.toLocaleString()}`;
+}
 
+function fmtCompact(n: number): string {
+  if (n === 0 && !Number.isFinite(n)) return "—";
+  if (n >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
+  if (n >= 1e6) return `${(n / 1e6).toFixed(2)}M`;
+  if (n >= 1e3) return `${(n / 1e3).toFixed(1)}K`;
+  return n.toLocaleString();
+}
+
+// ── MetricCard ─────────────────────────────────────────────
 function MetricCard({
-  title,
+  label,
   value,
   delta,
-  icon: Icon,
-  fmt,
+  positive,
 }: {
-  title: string;
-  value: number;
-  delta: number;
-  icon: React.ComponentType<{ className?: string }>;
-  fmt: (v: number) => string;
+  label: string;
+  value: string;
+  delta?: string;
+  positive?: boolean;
 }) {
   return (
-    <Card className="border-border/50">
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-          {title}
-        </CardTitle>
-        <Icon className="size-4 text-muted-foreground" />
+    <Card className="border-border/50 bg-card/60">
+      <CardHeader className="pb-2">
+        <p className="text-xs text-muted-foreground uppercase tracking-wider">
+          {label}
+        </p>
       </CardHeader>
       <CardContent>
-        <div className="font-mono tabular-nums text-2xl font-semibold tracking-tight">
-          {fmt(value)}
-        </div>
-        <Delta value={delta} className="mt-1 inline-block" />
+        <p className="text-2xl font-semibold font-mono tabular-nums tracking-tight">
+          {value}
+        </p>
+        {delta && (
+          <p
+            className={`mt-1 text-xs font-mono tabular-nums ${
+              positive
+                ? "text-[#4ade80]"
+                : "text-destructive"
+            }`}
+          >
+            {positive ? "+" : ""}
+            {delta}
+          </p>
+        )}
       </CardContent>
     </Card>
   );
 }
 
-function OverviewTab() {
-  return (
-    <div>
-      <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2">
-        Fluent Ecosystem
-      </p>
-      <h2 className="text-2xl font-semibold tracking-tight mb-6">
-        Key Metrics · Last 30 Days
-      </h2>
+// ── Page ───────────────────────────────────────────────────
+export default async function RevenuePage() {
+  let data: { entries: ChainEntry[]; fetchedAt: string };
+  let error: string | null = null;
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <MetricCard
-          title="Total Revenue"
-          value={fluentOverview.totalRevenue}
-          delta={fluentOverview.revenueDelta}
-          icon={DollarSign}
-          fmt={fmtCurrency}
-        />
-        <MetricCard
-          title="Active Users"
-          value={fluentOverview.activeUsers}
-          delta={fluentOverview.usersDelta}
-          icon={Users}
-          fmt={fmtCompact}
-        />
-        <MetricCard
-          title="TVL"
-          value={fluentOverview.tvl}
-          delta={fluentOverview.tvlDelta}
-          icon={Lock}
-          fmt={fmtCurrency}
-        />
-        <MetricCard
-          title="Fees (30d)"
-          value={fluentOverview.fees}
-          delta={fluentOverview.feesDelta}
-          icon={Receipt}
-          fmt={fmtCurrency}
-        />
-      </div>
-    </div>
-  );
-}
+  try {
+    data = await fetchChains();
+  } catch (e: any) {
+    error = e.message;
+    data = {
+      entries: [],
+      fetchedAt: new Date().toISOString(),
+    };
+  }
 
-function MonthlyTab() {
-  const maxRevenue = Math.max(...monthlyRevenue.map((m) => m.value));
+  const fluent = data.entries.find((e) => e.name === "Fluent");
+  const compare = data.entries.filter((e) => e.name !== "Fluent");
+  const sorted = [...data.entries].sort((a, b) => b.tvl - a.tvl);
 
-  return (
-    <div>
-      <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2">
-        Fluent Revenue Trend
-      </p>
-      <h2 className="text-2xl font-semibold tracking-tight mb-6">
-        12-Month Revenue
-      </h2>
-
-      <Card className="border-border/50">
-        <CardContent className="pt-6">
-          <div className="flex items-end gap-1.5 sm:gap-2 h-64">
-            {monthlyRevenue.map((month) => {
-              const heightPercent = (month.value / maxRevenue) * 100;
-              const isLastMonth = month.label === 'May';
-
-              return (
-                <div
-                  key={month.label}
-                  className="flex-1 flex flex-col items-center justify-end gap-1 min-w-0"
-                >
-                  <span className="font-mono tabular-nums text-[10px] sm:text-xs text-muted-foreground whitespace-nowrap">
-                    {fmtCurrency(month.value).replace('.00', '')}
-                  </span>
-                  <div
-                    className={cn(
-                      'w-full max-w-[40px] rounded-t transition-all duration-300',
-                      isLastMonth
-                        ? 'bg-primary'
-                        : 'bg-primary/50 hover:bg-primary/70',
-                    )}
-                    style={{ height: `${Math.max(heightPercent, 2)}%` }}
-                  />
-                  <span className="text-[10px] sm:text-xs text-muted-foreground">
-                    {month.label}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
-function CompareTab() {
-  return (
-    <div>
-      <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2">
-        Ecosystem Comparison
-      </p>
-      <h2 className="text-2xl font-semibold tracking-tight mb-6">
-        Revenue Leaderboard · 30 Days
-      </h2>
-
-      <Card className="border-border/50">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Project</TableHead>
-              <TableHead className="font-mono tabular-nums text-right">
-                Revenue (30d)
-              </TableHead>
-              <TableHead className="font-mono tabular-nums text-right">
-                Growth
-              </TableHead>
-              <TableHead className="font-mono tabular-nums text-right">
-                Market Share
-              </TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {compareProjects.map((project) => (
-              <TableRow
-                key={project.name}
-                className={
-                  project.name === 'Fluent'
-                    ? 'bg-primary/5 hover:bg-primary/10'
-                    : undefined
-                }
-              >
-                <TableCell className="font-medium">
-                  <div className="flex items-center gap-2">
-                    {project.name}
-                    {project.name === 'Fluent' && (
-                      <Badge
-                        variant="default"
-                        className="text-[10px] h-4 px-1.5"
-                      >
-                        You
-                      </Badge>
-                    )}
-                  </div>
-                </TableCell>
-                <TableCell className="font-mono tabular-nums text-right">
-                  {fmtCurrency(project.revenue30d)}
-                </TableCell>
-                <TableCell className="text-right">
-                  <Delta value={project.growth} />
-                </TableCell>
-                <TableCell className="font-mono tabular-nums text-right text-muted-foreground">
-                  {project.marketShare.toFixed(1)}%
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </Card>
-    </div>
-  );
-}
-
-// ── Page ─────────────────────────────────────────────────────────────────────────
-
-export default function RevenuePage() {
   return (
     <div className="mx-auto max-w-7xl px-4 sm:px-6 py-8">
-      {/* Page header */}
-      <div className="mb-8">
+      {/* Header */}
+      <div className="mb-6">
         <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2">
-          Revenue Analytics
+          Revenue Comparison
         </p>
         <h1 className="text-2xl font-semibold tracking-tight">
-          Revenue Comparison
+          Fluent vs Comparable Chains
         </h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Live TVL data from DefiLlama
+          {" · "}
+          <span className="font-mono text-[11px]">
+            updated {new Date(data.fetchedAt).toLocaleString()}
+          </span>
+        </p>
       </div>
 
+      {/* Fluent not listed banner */}
+      {fluent && !fluent.listed && (
+        <Card className="mb-6 border-amber-500/30 bg-amber-500/5">
+          <CardContent className="py-4 flex flex-col sm:flex-row items-start sm:items-center gap-3">
+            <Badge
+              variant="outline"
+              className="border-amber-500/50 text-amber-400 shrink-0"
+            >
+              Action Needed
+            </Badge>
+            <div className="text-sm text-muted-foreground">
+              <strong className="text-foreground">Fluent is not yet listed on DefiLlama.</strong>{" "}
+              TVL/fee data is unavailable. The community can{" "}
+              <a
+                href="https://github.com/DefiLlama/defillama-server#submit-a-protocol"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary hover:underline"
+              >
+                submit a PR to add it ↗
+              </a>
+              {" "}or{" "}
+              <a
+                href="https://docs.llama.fi/list-your-project/submit-a-chain"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary hover:underline"
+              >
+                request chain listing ↗
+              </a>
+              .
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Error state */}
+      {error && (
+        <Card className="mb-6 border-destructive/30 bg-destructive/5">
+          <CardContent className="py-4">
+            <p className="text-sm text-destructive">
+              Failed to fetch data from DefiLlama: {error}
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Tabs */}
       <Tabs defaultValue="overview">
         <TabsList className="mb-6">
           <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="monthly">Monthly</TabsTrigger>
           <TabsTrigger value="compare">Compare</TabsTrigger>
+          <TabsTrigger value="about">About</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="overview">
-          <OverviewTab />
+        {/* Overview tab */}
+        <TabsContent value="overview" className="space-y-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+            {sorted.map((chain) => (
+              <MetricCard
+                key={chain.name}
+                label={`${chain.name} TVL`}
+                value={chain.listed ? fmtCurrency(chain.tvl) : "—"}
+                delta={chain.name === "Fluent" ? undefined : undefined}
+              />
+            ))}
+          </div>
+
+          <Card className="border-border/50 bg-card/60">
+            <CardHeader>
+              <CardTitle className="text-base font-semibold tracking-tight">
+                TVL Distribution
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {sorted
+                  .filter((c) => c.listed)
+                  .map((chain) => {
+                    const maxTvl = sorted[0]?.tvl || 1;
+                    const pct = (chain.tvl / maxTvl) * 100;
+                    return (
+                      <div key={chain.name} className="flex items-center gap-3">
+                        <span className="w-20 text-sm font-mono text-muted-foreground shrink-0">
+                          {chain.name}
+                        </span>
+                        <div className="flex-1 h-5 bg-muted rounded-sm overflow-hidden">
+                          <div
+                            className="h-full bg-primary/60 rounded-sm transition-all duration-500"
+                            style={{ width: `${Math.max(pct, 2)}%` }}
+                          />
+                        </div>
+                        <span className="w-24 text-sm font-mono tabular-nums text-right shrink-0">
+                          {fmtCurrency(chain.tvl)}
+                        </span>
+                      </div>
+                    );
+                  })}
+                {!sorted.some((c) => c.listed) && (
+                  <p className="text-sm text-muted-foreground py-8 text-center">
+                    No TVL data available. Fluent and comparable chains are not
+                    yet listed on DefiLlama.
+                  </p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
 
-        <TabsContent value="monthly">
-          <MonthlyTab />
-        </TabsContent>
-
+        {/* Compare tab */}
         <TabsContent value="compare">
-          <CompareTab />
+          <Card className="border-border/50 bg-card/60">
+            <CardHeader>
+              <CardTitle className="text-base font-semibold tracking-tight">
+                Chain Comparison
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-border/40">
+                    <TableHead className="text-xs">Chain</TableHead>
+                    <TableHead className="text-xs text-right">TVL</TableHead>
+                    <TableHead className="text-xs text-right">
+                      Listed on DefiLlama
+                    </TableHead>
+                    <TableHead className="text-xs text-right">
+                      Data Available
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {sorted.map((chain, i) => (
+                    <TableRow
+                      key={chain.name}
+                      className={
+                        chain.name === "Fluent"
+                          ? "bg-primary/[0.03] border-border/40"
+                          : "border-border/40"
+                      }
+                    >
+                      <TableCell className="text-sm">
+                        <span className="font-medium">{chain.name}</span>
+                        {chain.name === "Fluent" && (
+                          <Badge
+                            variant="outline"
+                            className="ml-2 text-[10px] border-primary/40 text-primary"
+                          >
+                            you
+                          </Badge>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-sm font-mono tabular-nums text-right">
+                        {chain.listed ? fmtCurrency(chain.tvl) : "—"}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {chain.listed ? (
+                          <Badge
+                            variant="default"
+                            className="text-[10px] bg-[#4ade80]/15 text-[#4ade80] border-[#4ade80]/30"
+                          >
+                            Listed
+                          </Badge>
+                        ) : (
+                          <Badge
+                            variant="secondary"
+                            className="text-[10px]"
+                          >
+                            Not Listed
+                          </Badge>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {chain.listed ? (
+                          <span className="text-xs text-muted-foreground">
+                            TVL only
+                          </span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">
+                            None
+                          </span>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* About tab */}
+        <TabsContent value="about">
+          <Card className="border-border/50 bg-card/60">
+            <CardHeader>
+              <CardTitle className="text-base font-semibold tracking-tight">
+                About This Data
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm text-muted-foreground">
+              <p>
+                Data is sourced from the{" "}
+                <a
+                  href="https://defillama.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary hover:underline"
+                >
+                  DefiLlama API ↗
+                </a>
+                , the most widely-used DeFi TVL aggregator. Data refreshes every
+                15 minutes.
+              </p>
+              <p>
+                <strong className="text-foreground">Current limitation:</strong>{" "}
+                Fluent is not yet listed on DefiLlama. Once Fluent is added,
+                revenue/fee metrics, historical charts, and protocol-level
+                breakdowns will become available.
+              </p>
+              <div className="pt-2">
+                <p className="text-xs text-muted-foreground">
+                  To add Fluent or a Fluent protocol to DefiLlama:
+                </p>
+                <ul className="list-disc list-inside mt-1 space-y-1 text-xs text-muted-foreground">
+                  <li>
+                    <a
+                      href="https://docs.llama.fi/list-your-project/submit-a-chain"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-primary hover:underline"
+                    >
+                      Submit a chain listing ↗
+                    </a>
+                  </li>
+                  <li>
+                    <a
+                      href="https://github.com/DefiLlama/defillama-server#submit-a-protocol"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-primary hover:underline"
+                    >
+                      Submit a protocol adapter PR ↗
+                    </a>
+                  </li>
+                </ul>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
     </div>

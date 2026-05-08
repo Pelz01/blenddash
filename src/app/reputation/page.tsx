@@ -5,6 +5,8 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import {
   Table,
   TableHeader,
@@ -13,8 +15,9 @@ import {
   TableRow,
   TableCell,
 } from "@/components/ui/table";
+import reputationData from "@/data/reputation.json";
 
-// ─── Signal data ────────────────────────────────────────────────────────────
+// ─── Types ───────────────────────────────────────────────────────────────────
 
 type SignalStatus = "Live" | "In Development" | "Planned";
 
@@ -23,6 +26,7 @@ interface Signal {
   status: SignalStatus;
   description: string;
   source: string;
+  sourceUrl?: string;
 }
 
 interface SignalCategory {
@@ -30,27 +34,46 @@ interface SignalCategory {
   signals: Signal[];
 }
 
+interface LeaderboardEntry {
+  id: string;
+  project: string;
+  repScore: number;
+  category: string;
+  change7d: number;
+  description?: string;
+  url?: string;
+  verified?: boolean;
+}
+
+// ─── Signal data (curated from Fluent docs & on-chain activity) ───────────────
+
 const signalCategories: SignalCategory[] = [
   {
     category: "Identity",
     signals: [
       {
-        name: "FluentID Verification",
+        name: "Fluent Prints Score",
         status: "Live",
-        description: "On-chain identity verification via FluentID attestations. Confirms unique human status without exposing PII.",
-        source: "FluentID Registry",
+        description:
+          "On-chain reputation primitives (Prints) that build portable trust scores. Create and collect Prints to establish your Fluent identity without exposing PII.",
+        source: "Fluent Prints",
+        sourceUrl: "https://portal.fluent.xyz/user",
       },
       {
-        name: "ENS Integration",
-        status: "Live",
-        description: "Reputation tied to ENS primary names and avatar records. Boosts trust for named participants.",
+        name: "ENS / FNS Integration",
+        status: "In Development",
+        description:
+          "Reputation tied to ENS primary names and Fluent native name service records. Boosts trust for named participants in governance and DeFi.",
         source: "ENS Protocol",
+        sourceUrl: "https://ens.domains",
       },
       {
         name: "Gitcoin Passport Score",
         status: "In Development",
-        description: "Aggregated sybil-resistance score from Gitcoin Passport stamps. Threshold-gated access tiers.",
-        source: "Gitcoin",
+        description:
+          "Aggregated sybil-resistance score from Gitcoin Passport stamps. Threshold-gated access tiers for airdrops and community membership.",
+        source: "Gitcoin Passport",
+        sourceUrl: "https://passport.gitcoin.co",
       },
     ],
   },
@@ -60,26 +83,33 @@ const signalCategories: SignalCategory[] = [
       {
         name: "Transaction Volume (30d)",
         status: "Live",
-        description: "Rolling 30-day on-chain transaction volume across Fluent ecosystem contracts. Weighted by USD value.",
-        source: "Fluent Indexer",
+        description:
+          "Rolling 30-day on-chain transaction volume across Fluent ecosystem contracts. Weighted by USD value and gas consumption.",
+        source: "FluentScan API",
+        sourceUrl: "https://fluentscan.xyz",
       },
       {
         name: "Protocol Interaction Depth",
         status: "Live",
-        description: "Number of unique protocols the address has interacted with. Broader footprint signals ecosystem engagement.",
+        description:
+          "Number of unique protocols the address has interacted with on Fluent. Broader footprint signals ecosystem engagement and organic usage.",
         source: "BlendDash Analytics",
+        sourceUrl: "https://github.com/Pelz01/blenddash",
       },
       {
         name: "Contract Deployments",
         status: "In Development",
-        description: "Verified smart contract deployments. Rewards builders who ship public goods on Fluent.",
-        source: "FluentScan",
+        description:
+          "Verified smart contract deployments on Fluent. Rewards builders who ship public goods and developer tooling.",
+        source: "FluentScan Verified Contracts",
+        sourceUrl: "https://fluentscan.xyz",
       },
       {
         name: "Liquidity Provision Score",
         status: "Planned",
-        description: "Time-weighted average liquidity provided across Fluent AMM pools. Incentivizes deep, sticky liquidity.",
-        source: "FluentSwap",
+        description:
+          "Time-weighted average liquidity provided across Fluent AMM pools. Incentivizes deep, sticky liquidity as the ecosystem matures.",
+        source: "Fluent DeFi (Roadmap)",
       },
     ],
   },
@@ -88,21 +118,27 @@ const signalCategories: SignalCategory[] = [
     signals: [
       {
         name: "Governance Participation",
-        status: "Live",
-        description: "Snapshot vote count and proposal authorship across Fluent DAOs. Measures governance citizenship.",
+        status: "In Development",
+        description:
+          "Snapshot vote count and proposal authorship across Fluent DAOs. Measures governance citizenship and community stewardship.",
         source: "Snapshot + Tally",
+        sourceUrl: "https://snapshot.org",
       },
       {
         name: "Community Endorsements",
-        status: "In Development",
-        description: "Peer-to-peer attestations from community members. Social graph trust weighted by endorser reputation.",
+        status: "Planned",
+        description:
+          "Peer-to-peer attestations via EAS on Fluent. Social graph trust weighted by endorser reputation score.",
         source: "EAS / Fluent Attestation Service",
+        sourceUrl: "https://attest.org",
       },
       {
-        name: "Discourse Activity",
-        status: "Planned",
-        description: "Forum post count, topic creation, and solution marks on Fluent governance forums.",
-        source: "Discourse API",
+        name: "Discord & Forum Activity",
+        status: "In Development",
+        description:
+          "Meaningful contributions across Fluent Discord and governance forums. Topic creation, solution marks, and community help.",
+        source: "Fluent Discord",
+        sourceUrl: "https://discord.com/invite/fluentxyz",
       },
     ],
   },
@@ -111,65 +147,38 @@ const signalCategories: SignalCategory[] = [
     signals: [
       {
         name: "Delegation Weight",
-        status: "Live",
-        description: "Total voting power delegated to the address across Fluent governance contracts. Signal of community trust.",
-        source: "Fluent Governor",
+        status: "In Development",
+        description:
+          "Total voting power delegated to the address across Fluent governance contracts. Signal of community trust and mandate.",
+        source: "Fluent Governance",
+        sourceUrl: "https://docs.fluent.xyz",
       },
       {
         name: "Proposal Success Rate",
-        status: "Live",
-        description: "Ratio of passed to total authored governance proposals. Quality filter for proposal authors.",
-        source: "Tally",
+        status: "Planned",
+        description:
+          "Ratio of passed to total authored governance proposals. Quality filter for proposal authors and protocol stewards.",
+        source: "Tally / Fluent Governor",
+        sourceUrl: "https://tally.xyz",
       },
       {
         name: "Treasury Stewardship",
         status: "Planned",
-        description: "Multi-sig signer status and treasury management history across Fluent ecosystem DAOs.",
+        description:
+          "Multi-sig signer status and treasury management history across Fluent ecosystem DAOs and protocol treasuries.",
         source: "Safe / Fluent DAOs",
+        sourceUrl: "https://safe.global",
       },
     ],
   },
 ];
 
-// ─── Leaderboard data ───────────────────────────────────────────────────────
-
-interface LeaderboardEntry {
-  id: number;
-  project: string;
-  repScore: number;
-  category: string;
-  change7d: number; // positive = gain, negative = loss
-}
-
-const leaderboardData: LeaderboardEntry[] = [
-  { id: 1, project: "FluentSwap", repScore: 9842, category: "DeFi", change7d: 142 },
-  { id: 2, project: "LiquidityLens", repScore: 9215, category: "Analytics", change7d: 88 },
-  { id: 3, project: "MintMatrix", repScore: 8976, category: "NFT", change7d: -34 },
-  { id: 4, project: "BridgeBeam", repScore: 8430, category: "Bridge", change7d: 215 },
-  { id: 5, project: "YieldYarn", repScore: 8102, category: "DeFi", change7d: 67 },
-  { id: 6, project: "FluentPad", repScore: 7895, category: "Launchpad", change7d: -120 },
-  { id: 7, project: "OracleOasis", repScore: 7611, category: "Oracle", change7d: 53 },
-  { id: 8, project: "VaultVista", repScore: 7340, category: "DeFi", change7d: -89 },
-  { id: 9, project: "FluentDAO", repScore: 7104, category: "Governance", change7d: 176 },
-  { id: 10, project: "SwapSphere", repScore: 6892, category: "DeFi", change7d: 41 },
-  { id: 11, project: "LedgerLoom", repScore: 6601, category: "Infra", change7d: -55 },
-  { id: 12, project: "FluentLend", repScore: 6378, category: "Lending", change7d: 98 },
-  { id: 13, project: "TokenTide", repScore: 6120, category: "DeFi", change7d: -203 },
-  { id: 14, project: "CipherChain", repScore: 5894, category: "Privacy", change7d: 310 },
-  { id: 15, project: "NexusNode", repScore: 5602, category: "Infra", change7d: 25 },
-  { id: 16, project: "FluentVault", repScore: 5380, category: "DeFi", change7d: -77 },
-  { id: 17, project: "ProofPulse", repScore: 5115, category: "Identity", change7d: 133 },
-  { id: 18, project: "BlazeBlocks", repScore: 4870, category: "Infra", change7d: -41 },
-  { id: 19, project: "FluentX", repScore: 4603, category: "Exchange", change7d: 290 },
-  { id: 20, project: "AuraAgents", repScore: 4320, category: "AI", change7d: 55 },
-];
-
-type SortKey = keyof LeaderboardEntry;
-type SortDir = "asc" | "desc";
-
 // ─── Signal status helpers ──────────────────────────────────────────────────
 
-const statusStyles: Record<SignalStatus, { variant: "default" | "secondary" | "outline"; className: string }> = {
+const statusStyles: Record<
+  SignalStatus,
+  { variant: "default" | "secondary" | "outline"; className: string }
+> = {
   Live: {
     variant: "default",
     className: "bg-[#4ade80]/15 text-[#4ade80] border-[#4ade80]/30",
@@ -200,6 +209,68 @@ function rankMedal(rank: number): string {
   return "";
 }
 
+// ─── Leaderboard sub-components ─────────────────────────────────────────────
+
+type SortKey = keyof LeaderboardEntry;
+type SortDir = "asc" | "desc";
+
+function LeaderboardEmptyState() {
+  return (
+    <div className="flex flex-col items-center justify-center py-20 text-center">
+      <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-muted">
+        <svg
+          className="h-6 w-6 text-muted-foreground"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={1.5}
+            d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z"
+          />
+        </svg>
+      </div>
+      <h3 className="text-sm font-semibold text-foreground/80">
+        Leaderboard data is community-maintained
+      </h3>
+      <p className="mt-2 max-w-md text-xs text-muted-foreground leading-relaxed">
+        The reputation leaderboard is driven by{" "}
+        <code className="rounded bg-muted px-1 py-0.5 text-[11px]">
+          src/data/reputation.json
+        </code>
+        . No entries exist yet or none match your search. Help grow the
+        ecosystem — submit a PR to add your project!
+      </p>
+      <a
+        href="https://github.com/Pelz01/blenddash/edit/main/src/data/reputation.json"
+        target="_blank"
+        rel="noopener noreferrer"
+        className={cn(
+          buttonVariants({ variant: "outline", size: "sm" }),
+          "mt-5 gap-2 text-xs",
+        )}
+      >
+        <svg
+            className="h-3.5 w-3.5"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M12 4v16m8-8H4"
+            />
+          </svg>
+          Submit a PR to Add Your Project
+      </a>
+    </div>
+  );
+}
+
 // ─── Page component ─────────────────────────────────────────────────────────
 
 export default function ReputationPage() {
@@ -207,15 +278,22 @@ export default function ReputationPage() {
 
   // Leaderboard state
   const [search, setSearch] = useState("");
-  const [sortKey, setSortKey] = useState<SortKey>("id");
-  const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [sortKey, setSortKey] = useState<SortKey>("repScore");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+
+  // Read entries from JSON data file
+  const entries: LeaderboardEntry[] = useMemo(
+    () => (reputationData?.entries ?? []) as LeaderboardEntry[],
+    [],
+  );
 
   const filteredSorted = useMemo(() => {
     const term = search.toLowerCase();
-    const filtered = leaderboardData.filter(
+    const filtered = entries.filter(
       (entry) =>
         entry.project.toLowerCase().includes(term) ||
-        entry.category.toLowerCase().includes(term)
+        entry.category.toLowerCase().includes(term) ||
+        (entry.description ?? "").toLowerCase().includes(term),
     );
 
     const sorted = [...filtered].sort((a, b) => {
@@ -225,11 +303,11 @@ export default function ReputationPage() {
         return sortDir === "asc" ? aVal - bVal : bVal - aVal;
       }
       return sortDir === "asc"
-        ? String(aVal).localeCompare(String(bVal))
-        : String(bVal).localeCompare(String(aVal));
+        ? String(aVal ?? "").localeCompare(String(bVal ?? ""))
+        : String(bVal ?? "").localeCompare(String(aVal ?? ""));
     });
     return sorted;
-  }, [search, sortKey, sortDir]);
+  }, [entries, search, sortKey, sortDir]);
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -257,7 +335,10 @@ export default function ReputationPage() {
         </p>
       </div>
 
-      <Tabs value={activeTab} onValueChange={(val) => setActiveTab(val as string)}>
+      <Tabs
+        value={activeTab}
+        onValueChange={(val) => setActiveTab(val as string)}
+      >
         <TabsList>
           <TabsTrigger value="map">Reputation Map</TabsTrigger>
           <TabsTrigger value="leaderboard">Leaderboard</TabsTrigger>
@@ -297,9 +378,20 @@ export default function ReputationPage() {
                           </CardDescription>
                         </CardHeader>
                         <CardContent className="pt-2">
-                          <span className="text-[11px] text-muted-foreground/70">
-                            Source: {signal.source}
-                          </span>
+                          {signal.sourceUrl ? (
+                            <a
+                              href={signal.sourceUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-[11px] text-primary/70 hover:text-primary transition-colors underline underline-offset-2"
+                            >
+                              Source: {signal.source} ↗
+                            </a>
+                          ) : (
+                            <span className="text-[11px] text-muted-foreground/70">
+                              Source: {signal.source}
+                            </span>
+                          )}
                         </CardContent>
                       </Card>
                     );
@@ -308,102 +400,257 @@ export default function ReputationPage() {
               </section>
             ))}
           </div>
+
+          {/* Data source note */}
+          <div className="mt-10 rounded-lg border border-border/30 bg-muted/30 px-4 py-3">
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              <strong className="text-foreground/70">Data sources:</strong>{" "}
+              Signal descriptions and statuses are curated from{" "}
+              <a
+                href="https://docs.fluent.xyz"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary/70 hover:text-primary underline underline-offset-2"
+              >
+                Fluent documentation
+              </a>
+              ,{" "}
+              <a
+                href="https://github.com/fluentlabs-xyz"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary/70 hover:text-primary underline underline-offset-2"
+              >
+                Fluent Labs GitHub
+              </a>
+              ,{" "}
+              <a
+                href="https://fluent.xyz"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary/70 hover:text-primary underline underline-offset-2"
+              >
+                fluent.xyz
+              </a>
+              , and on-chain activity. Status reflects current development
+              phase: <span className="text-[#4ade80]">Live</span> = deployed on
+              mainnet/testnet,{" "}
+              <span className="text-amber-400">In Development</span> = mentioned
+              in docs/roadmap with active work,{" "}
+              <span className="text-muted-foreground">Planned</span> = roadmap
+              item. Last reviewed: May 2026.
+            </p>
+          </div>
         </TabsContent>
 
         {/* ── Leaderboard ─────────────────────────────────────────────── */}
         <TabsContent value="leaderboard" className="mt-6">
-          <div className="mb-4">
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <Input
-              placeholder="Search projects or categories..."
+              placeholder="Search projects, categories, or descriptions..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="max-w-sm"
             />
+            <p className="text-[11px] text-muted-foreground shrink-0">
+              Data from{" "}
+              <code className="rounded bg-muted px-1 py-0.5 text-[10px]">
+                src/data/reputation.json
+              </code>{" "}
+              ·{" "}
+              <a
+                href="https://github.com/Pelz01/blenddash/edit/main/src/data/reputation.json"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary/70 hover:text-primary underline underline-offset-2"
+              >
+                Submit a PR ↗
+              </a>
+            </p>
           </div>
 
-          <Card className="border-border/50 bg-card/60 overflow-hidden">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead
-                    className="w-16 cursor-pointer select-none hover:text-primary transition-colors"
-                    onClick={() => handleSort("id")}
-                  >
-                    Rank{sortIndicator("id")}
-                  </TableHead>
-                  <TableHead
-                    className="cursor-pointer select-none hover:text-primary transition-colors"
-                    onClick={() => handleSort("project")}
-                  >
-                    Project / Entity{sortIndicator("project")}
-                  </TableHead>
-                  <TableHead
-                    className="cursor-pointer select-none hover:text-primary transition-colors text-right"
-                    onClick={() => handleSort("repScore")}
-                  >
-                    Rep Score{sortIndicator("repScore")}
-                  </TableHead>
-                  <TableHead
-                    className="cursor-pointer select-none hover:text-primary transition-colors"
-                    onClick={() => handleSort("category")}
-                  >
-                    Category{sortIndicator("category")}
-                  </TableHead>
-                  <TableHead
-                    className="cursor-pointer select-none hover:text-primary transition-colors text-right"
-                    onClick={() => handleSort("change7d")}
-                  >
-                    Change (7d){sortIndicator("change7d")}
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredSorted.map((entry, idx) => (
-                  <TableRow
-                    key={entry.id}
-                    className={`${rankHighlight(idx + 1)} transition-colors`}
-                  >
-                    <TableCell className="font-mono tabular-nums text-xs text-muted-foreground">
-                      {rankMedal(idx + 1)} {String(idx + 1).padStart(2, "0")}
-                    </TableCell>
-                    <TableCell className="font-medium">
-                      {entry.project}
-                    </TableCell>
-                    <TableCell className="font-mono tabular-nums text-right">
-                      {entry.repScore.toLocaleString()}
-                    </TableCell>
-                    <TableCell>
-                      <Badge
-                        variant="outline"
-                        className="text-[10px] border-border/40 text-muted-foreground"
-                      >
-                        {entry.category}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="font-mono tabular-nums text-right">
-                      <span
-                        className={
-                          entry.change7d >= 0
-                            ? "text-[#4ade80]"
-                            : "text-destructive"
-                        }
-                      >
-                        {entry.change7d >= 0 ? "+" : ""}
-                        {entry.change7d.toLocaleString()}
-                      </span>
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {filteredSorted.length === 0 && (
+          {entries.length === 0 ? (
+            <LeaderboardEmptyState />
+          ) : (
+            <Card className="border-border/50 bg-card/60 overflow-hidden">
+              <Table>
+                <TableHeader>
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                      No results match your search.
-                    </TableCell>
+                    <TableHead
+                      className="w-16 cursor-pointer select-none hover:text-primary transition-colors"
+                      onClick={() => handleSort("id")}
+                    >
+                      Rank{sortIndicator("id")}
+                    </TableHead>
+                    <TableHead
+                      className="cursor-pointer select-none hover:text-primary transition-colors"
+                      onClick={() => handleSort("project")}
+                    >
+                      Project / Entity{sortIndicator("project")}
+                    </TableHead>
+                    <TableHead
+                      className="cursor-pointer select-none hover:text-primary transition-colors text-right"
+                      onClick={() => handleSort("repScore")}
+                    >
+                      Rep Score{sortIndicator("repScore")}
+                    </TableHead>
+                    <TableHead
+                      className="cursor-pointer select-none hover:text-primary transition-colors"
+                      onClick={() => handleSort("category")}
+                    >
+                      Category{sortIndicator("category")}
+                    </TableHead>
+                    <TableHead
+                      className="cursor-pointer select-none hover:text-primary transition-colors text-right"
+                      onClick={() => handleSort("change7d")}
+                    >
+                      Change (7d){sortIndicator("change7d")}
+                    </TableHead>
                   </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </Card>
+                </TableHeader>
+                <TableBody>
+                  {filteredSorted.length === 0 ? (
+                    <TableRow>
+                      <TableCell
+                        colSpan={5}
+                        className="text-center py-16"
+                      >
+                        <div className="flex flex-col items-center gap-3">
+                          <p className="text-sm text-muted-foreground">
+                            No results match your search.
+                          </p>
+                          <a
+                            href="https://github.com/Pelz01/blenddash/edit/main/src/data/reputation.json"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className={cn(
+                              buttonVariants({ variant: "outline", size: "sm" }),
+                              "gap-2 text-xs",
+                            )}
+                          >
+                            <svg
+                                className="h-3.5 w-3.5"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M12 4v16m8-8H4"
+                                />
+                              </svg>
+                              Add Your Project via PR
+                          </a>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    filteredSorted.map((entry, idx) => (
+                      <TableRow
+                        key={entry.id}
+                        className={`${rankHighlight(idx + 1)} transition-colors`}
+                      >
+                        <TableCell className="font-mono tabular-nums text-xs text-muted-foreground">
+                          {rankMedal(idx + 1)}{" "}
+                          {String(idx + 1).padStart(2, "0")}
+                        </TableCell>
+                        <TableCell className="font-medium">
+                          <div className="flex items-center gap-2">
+                            {entry.url ? (
+                              <a
+                                href={entry.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="hover:text-primary transition-colors"
+                              >
+                                {entry.project}
+                              </a>
+                            ) : (
+                              entry.project
+                            )}
+                            {entry.verified && (
+                              <Badge
+                                variant="outline"
+                                className="text-[9px] h-4 px-1 border-[#4ade80]/30 text-[#4ade80]/80"
+                              >
+                                ✓ verified
+                              </Badge>
+                            )}
+                          </div>
+                          {entry.description && (
+                            <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-1 max-w-xs">
+                              {entry.description}
+                            </p>
+                          )}
+                        </TableCell>
+                        <TableCell className="font-mono tabular-nums text-right">
+                          {entry.repScore.toLocaleString()}
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] border-border/40 text-muted-foreground"
+                          >
+                            {entry.category}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="font-mono tabular-nums text-right">
+                          <span
+                            className={
+                              entry.change7d >= 0
+                                ? "text-[#4ade80]"
+                                : "text-destructive"
+                            }
+                          >
+                            {entry.change7d >= 0 ? "+" : ""}
+                            {entry.change7d.toLocaleString()}
+                          </span>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </Card>
+          )}
+
+          {/* Bottom CTA for community contributions */}
+          <div className="mt-6 rounded-lg border border-border/30 bg-muted/30 px-4 py-3 text-center">
+            <p className="text-xs text-muted-foreground">
+              The leaderboard is community-maintained.{" "}
+              <a
+                href="https://github.com/Pelz01/blenddash/blob/main/src/data/reputation.json"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary/70 hover:text-primary underline underline-offset-2 font-medium"
+              >
+                View the data file
+              </a>{" "}
+              and{" "}
+              <a
+                href="https://github.com/Pelz01/blenddash/edit/main/src/data/reputation.json"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary/70 hover:text-primary underline underline-offset-2 font-medium"
+              >
+                submit a PR
+              </a>{" "}
+              to add or update projects. Reputation scores are
+              community-estimated and not official Fluent Labs rankings. For
+              on-chain reputation, use{" "}
+              <a
+                href="https://portal.fluent.xyz/user"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary/70 hover:text-primary underline underline-offset-2 font-medium"
+              >
+                Fluent Prints
+              </a>
+              .
+            </p>
+          </div>
         </TabsContent>
       </Tabs>
     </div>
